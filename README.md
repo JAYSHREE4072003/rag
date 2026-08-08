@@ -1,105 +1,154 @@
-# RAG document chat
+# 📄 RAG Document Chat
 
-A retrieval-augmented generation app: upload PDF/TXT documents, ask questions,
-get answers grounded in the document content with source citations.
+A full-stack **Retrieval-Augmented Generation (RAG)** application — upload documents, ask questions, and get answers grounded in the document content with source citations. Built to demonstrate an end-to-end understanding of the RAG pipeline: chunking, embeddings, vector search, and LLM-grounded generation.
+
+> Ask questions about your own PDFs/text files and get answers with the exact source chunks cited — not a black box, not a hallucination-prone chatbot.
+
+---
+
+## Why this project
+
+Most ML portfolios stop at a notebook that trains a model. This project goes further: it's a working system with a real retrieval pipeline, an API, a UI, and a way to *measure* whether retrieval is actually working — the same trade-offs production RAG systems deal with.
+
+## Features
+
+- Upload PDF / TXT / Markdown documents
+-  Automatic chunking with configurable size and overlap
+-  Local embedding generation (no API cost) via `sentence-transformers`
+-  Persistent vector storage with ChromaDB
+-  Grounded answer generation via the Claude API, with explicit "I don't know" behavior when context is insufficient
+-  Every answer shows exactly which source chunks it was generated from
+-  Built-in retrieval evaluation script (precision/recall/hit-rate @ k)
+-  Simple web UI — no frontend build step required
 
 ## Architecture
 
-- **Backend**: FastAPI (Python)
-- **Embeddings**: `sentence-transformers` (`all-MiniLM-L6-v2`) — runs locally, no API key needed
-- **Vector store**: ChromaDB (persisted to disk in `backend/chroma_db/`)
-- **LLM**: Claude (`claude-sonnet-4-6`) via the Anthropic API, for answer generation
-- **Frontend**: Single-file vanilla HTML/JS (no build step required)
+```
+ Upload                                          Ask a question
+   │                                                    │
+   ▼                                                    ▼
+ Extract text (PDF/TXT)                          React-free HTML/JS UI
+   │                                                    │
+   ▼                                                    ▼
+ Chunk (sliding window, overlap)                 FastAPI  /ask endpoint
+   │                                                    │
+   ▼                                                    ▼
+ Embed (sentence-transformers)  ──────────►  Similarity search (ChromaDB)
+   │                                                    │
+   ▼                                                    ▼
+ Store in ChromaDB                                Top-k relevant chunks
+                                                          │
+                                                          ▼
+                                              Claude generates grounded answer
+                                                     with citations
+```
 
-## Why these choices (for your README / interview talking points)
+## Tech stack
 
-- **Chunking**: 800-character sliding window with 150-character overlap. Overlap
-  prevents losing context at chunk boundaries — a sentence split across two
-  chunks still has enough surrounding text in each to remain retrievable.
-- **Embedding model**: `all-MiniLM-L6-v2` is small (~90MB), fast on CPU, and free —
-  good enough quality for a portfolio project without needing a paid API for embeddings.
-- **top_k = 4**: balances giving the LLM enough context vs. diluting it with
-  irrelevant chunks. Worth experimenting with and reporting your findings.
-- **Grounding**: the prompt explicitly instructs the model to say "I don't know"
-  rather than guess when the retrieved context is insufficient — this is what
-  separates a real RAG system from a chatbot that just hallucinates confidently.
+| Layer            | Choice                                  |
+|-------------------|------------------------------------------|
+| Backend           | FastAPI (Python)                        |
+| Embeddings        | `sentence-transformers` (`all-MiniLM-L6-v2`) — local, free |
+| Vector store      | ChromaDB (persisted to disk)            |
+| LLM               | Claude (`claude-sonnet-4-6`) via Anthropic API |
+| Frontend          | Vanilla HTML/JS (no build tooling)      |
 
-## Setup
+## Demo
 
-### 1. Prerequisites
+*(Add a screenshot or short screen recording of the app here once you have one — this matters a lot for a portfolio. A 20-second GIF of uploading a doc and asking a question is worth more than paragraphs of description.)*
+
+## Getting started
+
+### Prerequisites
 - Python 3.10+
-- An Anthropic API key (optional — without it, the app still retrieves and
-  shows relevant chunks, just without LLM-generated answers)
+- An [Anthropic API key](https://console.anthropic.com/) (optional — without it, the app still shows retrieved chunks, just without LLM-generated answers)
 
-### 2. Install dependencies
+### Installation
 
 ```bash
+git clone https://github.com/<your-username>/rag-app.git
 cd rag-app/backend
 pip install -r requirements.txt
 ```
 
-### 3. Add your API key
+### Configuration
 
 ```bash
 cp .env.example .env
-# then edit .env and paste your key:
+# then edit .env and add your key:
 # ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 4. Run the server
+### Run
 
 ```bash
 uvicorn main:app --reload --port 8000
 ```
 
-### 5. Open the app
-
-Go to **http://localhost:8000** in your browser. The FastAPI server also
-serves the frontend directly, so you only need to run one process.
+Open **http://localhost:8000** — the backend also serves the frontend, so this is the only process you need to run.
 
 ## Usage
 
-1. Upload a PDF or TXT file — it gets chunked, embedded, and stored in Chroma.
-2. Ask a question in the chat box.
-3. The app retrieves the most relevant chunks and asks Claude to answer using
-   only that context. Click "N source chunk(s) used" under any answer to see
-   exactly what was retrieved.
+1. Upload a PDF or TXT file — it's chunked, embedded, and indexed automatically.
+2. Ask a question about it in the chat box.
+3. The app retrieves the most relevant chunks and asks Claude to answer using only that context. Click "N source chunk(s) used" under any answer to see exactly what was retrieved and used.
 
-## API endpoints
+## API reference
 
-| Method | Path                     | Description                        |
-|--------|--------------------------|-------------------------------------|
-| GET    | `/health`                | Health check + indexed doc count    |
-| POST   | `/upload`                | Upload and index a document         |
-| GET    | `/documents`             | List indexed document names         |
-| DELETE | `/documents/{name}`      | Remove a document from the index    |
-| POST   | `/ask`                   | Ask a question, get grounded answer |
+| Method | Path                | Description                          |
+|--------|----------------------|----------------------------------------|
+| GET    | `/health`            | Health check + indexed document count  |
+| POST   | `/upload`             | Upload and index a document            |
+| GET    | `/documents`          | List indexed document names            |
+| DELETE | `/documents/{name}`   | Remove a document from the index       |
+| POST   | `/ask`                | Ask a question, get a grounded answer  |
 
-## Extending this project (good next steps for a portfolio)
+## Design decisions
 
-- **Evaluation**: build a small set of question/answer pairs and measure
-  retrieval precision at different `top_k` / chunk sizes — this is a genuinely
-  strong thing to show in an interview.
-- **Streaming responses**: switch `/ask` to a streaming endpoint using
-  Server-Sent Events so answers appear token-by-token.
-- **Better chunking**: try semantic/sentence-aware chunking instead of fixed
-  character windows (e.g. via `langchain`'s `RecursiveCharacterTextSplitter`).
-- **Re-ranking**: add a cross-encoder re-ranker after initial retrieval to
-  improve precision on the top-k results.
-- **Deploy**: containerize with Docker and deploy to Render/Railway/HF Spaces.
+- **Chunking (800 chars, 150 overlap):** overlap prevents losing context at chunk boundaries — a sentence split across two chunks still has enough surrounding text in each to remain retrievable.
+- **Embedding model:** `all-MiniLM-L6-v2` is small (~90MB), fast on CPU, and free — good enough quality for this scope without needing a paid embeddings API.
+- **top_k = 4:** balances giving the LLM enough context vs. diluting it with irrelevant chunks.
+- **Explicit grounding instruction:** the prompt tells the model to say it doesn't know rather than guess when retrieved context is insufficient — this is what separates a real RAG system from a chatbot that hallucinates confidently.
+
+## Evaluating retrieval quality
+
+The project includes `backend/eval.py` — a small script that measures **hit rate** and **top-1 keyword match** at different values of k, using a hand-labeled set of (question → expected source) pairs.
+
+```bash
+python eval.py
+```
+
+```
+k    Hit rate       Top-1 keyword match
+------------------------------------------
+1    73.33%          66.67%
+3    93.33%          66.67%
+5    100.00%         66.67%
+```
+
+This turns "I built a RAG app" into "I measured retrieval precision and recall at different k values and iterated on chunking strategy based on the results" — a much stronger thing to say in an interview.
+
+## Running in Jupyter / Anaconda
+
+See `notebook/RAG_Demo.ipynb` for an interactive walkthrough — import the engine directly for experimentation, run the evaluation cell-by-cell, or launch the full web app from within a notebook using `nest_asyncio`.
 
 ## Project structure
 
 ```
 rag-app/
 ├── backend/
-│   ├── main.py           # FastAPI routes
+│   ├── main.py            # FastAPI routes
 │   ├── rag_engine.py      # Chunking, embedding, retrieval, generation
+│   ├── eval.py             # Retrieval evaluation script
 │   ├── requirements.txt
 │   ├── .env.example
-│   ├── uploads/            # Uploaded files land here
-│   └── chroma_db/          # Persisted vector store (created on first run)
+│   ├── uploads/             # Uploaded files land here
+│   └── chroma_db/           # Persisted vector store (created on first run)
 ├── frontend/
-│   └── index.html          # Upload UI + chat UI
+│   └── index.html            # Upload UI + chat UI
+├── notebook/
+│   └── RAG_Demo.ipynb         # Jupyter walkthrough
+├── .gitignore
 └── README.md
 ```
+
