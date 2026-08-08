@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RAG Document Chat</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    max-width: 800px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #222;
+    background: #fafafa;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
+
+  .card {
+    background: #fff;
+    border: 1px solid #e2e2e2;
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+
+  #docList { list-style: none; padding: 0; margin: 10px 0 0; font-size: 13px; }
+  #docList li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid #f0f0f0; color: #444;
+  }
+  #docList button {
+    background: none; border: none; color: #c0392b; cursor: pointer; font-size: 12px;
+  }
+
+  input[type=file] { font-size: 13px; }
+  button.primary {
+    background: #2c2c2a; color: #fff; border: none; border-radius: 6px;
+    padding: 8px 16px; font-size: 13px; cursor: pointer; margin-left: 8px;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+
+  #chat {
+    height: 380px;
+    overflow-y: auto;
+    border: 1px solid #e2e2e2;
+    border-radius: 10px;
+    background: #fff;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .msg { margin-bottom: 16px; }
+  .msg .role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; margin-bottom: 4px; }
+  .msg.user .bubble { background: #ecebe6; }
+  .msg.assistant .bubble { background: #eef2fb; }
+  .bubble { padding: 10px 12px; border-radius: 8px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+
+  .sources { margin-top: 8px; font-size: 12px; color: #666; }
+  .sources details { margin-top: 4px; }
+  .sources summary { cursor: pointer; }
+  .source-chunk { background: #f5f5f0; padding: 8px; border-radius: 6px; margin-top: 6px; font-family: monospace; font-size: 11px; white-space: pre-wrap; }
+
+  .inputRow { display: flex; gap: 8px; }
+  #question {
+    flex: 1; padding: 10px 12px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px;
+  }
+  .status { font-size: 12px; color: #888; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>RAG document chat</h1>
+<div class="subtitle">Upload a document, then ask questions grounded in its content.</div>
+
+<div class="card">
+  <h2>1. Upload documents</h2>
+  <input type="file" id="fileInput" accept=".pdf,.txt,.md">
+  <button class="primary" id="uploadBtn">Upload</button>
+  <div class="status" id="uploadStatus"></div>
+  <ul id="docList"></ul>
+</div>
+
+<div class="card">
+  <h2>2. Ask questions</h2>
+  <div id="chat"></div>
+  <div class="inputRow">
+    <input type="text" id="question" placeholder="Ask something about your documents...">
+    <button class="primary" id="askBtn">Ask</button>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+
+const fileInput = document.getElementById("fileInput");
+const uploadBtn = document.getElementById("uploadBtn");
+const uploadStatus = document.getElementById("uploadStatus");
+const docList = document.getElementById("docList");
+const chat = document.getElementById("chat");
+const question = document.getElementById("question");
+const askBtn = document.getElementById("askBtn");
+
+async function refreshDocs() {
+  const res = await fetch(`${API_BASE}/documents`);
+  const data = await res.json();
+  docList.innerHTML = "";
+  data.sources.forEach(src => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${src}</span>`;
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.onclick = async () => {
+      await fetch(`${API_BASE}/documents/${encodeURIComponent(src)}`, { method: "DELETE" });
+      refreshDocs();
+    };
+    li.appendChild(btn);
+    docList.appendChild(li);
+  });
+}
+
+uploadBtn.onclick = async () => {
+  const file = fileInput.files[0];
+  if (!file) { uploadStatus.textContent = "Choose a file first."; return; }
+
+  uploadStatus.textContent = "Uploading and indexing...";
+  uploadBtn.disabled = true;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData });
+    const data = await res.json();
+    uploadStatus.textContent = data.warning
+      ? data.warning
+      : `Indexed "${data.source}" into ${data.chunks_added} chunks.`;
+    fileInput.value = "";
+    refreshDocs();
+  } catch (err) {
+    uploadStatus.textContent = "Upload failed: " + err.message;
+  } finally {
+    uploadBtn.disabled = false;
+  }
+};
+
+function addMessage(role, text, sources) {
+  const msg = document.createElement("div");
+  msg.className = `msg ${role}`;
+
+  const roleLabel = document.createElement("div");
+  roleLabel.className = "role";
+  roleLabel.textContent = role === "user" ? "You" : "Assistant";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+
+  msg.appendChild(roleLabel);
+  msg.appendChild(bubble);
+
+  if (sources && sources.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "sources";
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `${sources.length} source chunk(s) used`;
+    details.appendChild(summary);
+    sources.forEach(s => {
+      const chunkDiv = document.createElement("div");
+      chunkDiv.className = "source-chunk";
+      chunkDiv.textContent = `[${s.source} · chunk ${s.chunk_index}]\n${s.text}`;
+      details.appendChild(chunkDiv);
+    });
+    wrap.appendChild(details);
+    msg.appendChild(wrap);
+  }
+
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function askQuestion() {
+  const q = question.value.trim();
+  if (!q) return;
+
+  addMessage("user", q);
+  question.value = "";
+  askBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+    });
+    const data = await res.json();
+    addMessage("assistant", data.answer, data.sources);
+  } catch (err) {
+    addMessage("assistant", "Error: " + err.message);
+  } finally {
+    askBtn.disabled = false;
+  }
+}
+
+askBtn.onclick = askQuestion;
+question.addEventListener("keydown", e => { if (e.key === "Enter") askQuestion(); });
+
+refreshDocs();
+</script>
+
+</body>
+</html>
