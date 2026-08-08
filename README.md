@@ -1,4 +1,4 @@
-# 📄 RAG Document Chat
+# RAG Document Chat
 
 A full-stack **Retrieval-Augmented Generation (RAG)** application — upload documents, ask questions, and get answers grounded in the document content with source citations. Built to demonstrate an end-to-end understanding of the RAG pipeline: chunking, embeddings, vector search, and LLM-grounded generation.
 
