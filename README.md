@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/30857860/README.md)
 # RAG document chat
 
 A retrieval-augmented generation app: upload PDF/TXT documents, ask questions,
